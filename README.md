@@ -4,6 +4,7 @@ In this repository I'm keeping my assembler programming projects.
 
 ```asm
 ; Life Motto
+
 .model small
 .stack 100h
 
