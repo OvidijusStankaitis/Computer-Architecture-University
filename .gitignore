@@ -1,2 +1,4 @@
 *.EXE
 tasm/
+*.MAP
+*.OBJ

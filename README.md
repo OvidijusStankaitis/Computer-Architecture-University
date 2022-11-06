@@ -3,22 +3,27 @@
 In this repository I'm keeping my assembler programming projects.
 
 ```asm
-name "Life motto"
+; Life Motto
+.model small
+.stack 100h
 
-org 100h
+.data
+    msg    db      "Be Awesome!!!", 0Dh,0Ah, 24h
 
-jmp start       
+.code
 
-msg:    db      "Be awesome!!!", 0Dh,0Ah, 24h
+start:
+    mov dx, @data          
+    mov ds, dx                    
 
-start:  mov     dx, msg  ;
-        mov     ah, 09h  
-        int     21h      
-        
-        mov     ah, 0 
-        int     16h     
-        
-ret
+    mov     ah, 09h
+    mov     dx, offset msg
+    int     21h
+
+    mov ah, 4ch          
+    mov al, 0     
+    int 21h              
+end start
 ```
 
-To compile I'm using tasm
+To compile I'm using tasm.
