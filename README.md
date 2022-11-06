@@ -3,8 +3,7 @@
 In this repository I'm keeping my assembler programming projects.
 
 ```asm
-; Life motto
-name "hi"
+name "Life motto"
 
 org 100h
 
