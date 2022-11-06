@@ -20,3 +20,5 @@ start:  mov     dx, msg  ;
         
 ret
 ```
+
+To compile I'm using tasm.
