@@ -3,17 +3,16 @@
 
 .data
 
-    msg db "This program will bubble sort your input in ascending order based on the ascii value of the element", 0dh, 0ah, 24h
     ;Message that will be printed in the teminal to prompt the user to enter a line of symbols
+    msg db "This program will bubble sort your input in ascending order based on the ascii value of the element", 0dh, 0ah, 24h
 
-    change db 255, ?, 255 dup('$')
     ; Input buffer
+    change db 255, ?, 255 dup('$')
 
-    newLine db 0dh, 0ah, 24h
     ; New line
+    newLine db 0dh, 0ah, 24h
     
 .code
-
     start:
 
         ; Moves data to ax register, and ax to data segment
@@ -29,40 +28,34 @@
             mov dx, offset change
             mov ah, 0Ah
             int 21h
-            ret
 
         ; Prints newline
         mov dx, offset newLine
         call print
 
-        ; Count of cycles
-        mov cx, 255
-        dec cx
+        ; How many times the loop will iterate
+        xor cx, cx
+        mov cl, [change + 1]
+        jcxz exit
+        xor bx, bx
 
-        ; Moves to the next element
-        next:
-            mov bx, cx
-            mov si, 0
-
-        ; Compares two elements
+        ; Loop that compares and swaps the elements
         comp:
-            mov al, change[si]
-            mov dl, change[si + 1]
-            cmp al, dl
-            jc noswap
+            comp2:
+                mov al, ds:[change + 2 + cx]
+                mov dl, ds:[change + 2 + bx]
+                cmp al, dl
+                
+                mov ds:[change + 2 + cx], dl
+                mov ds:[change + 2 + bx], al
 
-        ; Swaps them
-        mov change[si], dl
-        mov change[si+1], al
+                inc bx
 
-        ; Doesn't swap, increments si and decrements bx
-        noswap:
-            inc si
-            dec bx
-            jnz comp
+            loop comp2
 
-        ; Loops 255 times
-        loop next
+            xor bx, bx
+
+        loop comp
 
         ; Prints the output
         mov dx, offset change + 2
