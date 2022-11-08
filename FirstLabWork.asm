@@ -42,31 +42,31 @@
             inc di
 
             ; Checks for newline, if encounter, the iteration will seize
-            CMP al, 13 
-            JE endIteration
+            cmp al, 13 
+            je endIteration
 
             ; Checks for no space, and counts units if it doesn't encounter one
-            CMP al, 32 
-            JNE count1
+            cmp al, 32 
+            jne count1
             
             ; If both registers are zero, program jumps to next character
-            CMP bl, 0
-            CMP bh, 0
-            JE iteration
+            cmp bl, 0
+            cmp bh, 0
+            je iteration
 
             ; Checks if tens are zero, and only puts units in the output buffer and resets tens
-            CMP bl, 0
-            JE jump 
+            cmp bl, 0
+            je jump 
 
             ; Tens are moved to output buffer
-            ADD bl, 30h
+            add bl, 30h
             mov ds:[output + si], bl 
             inc si
 
         ; Places the count of symbols of words that are shorter than 10 into output buffer and resets bh and bl values
         jump:
             ; Adds 0 to the single digits
-            ADD bh, 30h
+            add bh, 30h
 
             ; Adds units to the output buffer
             mov ds:[output + si], bh
@@ -77,35 +77,35 @@
             inc si
 
             ; Reseting the values
-            XOR bh, bh
-            XOR bl, bl
-            JMP iteration
+            xor bh, bh
+            xor bl, bl
+            jmp iteration
 
         ; Checks if units exceed 9 and adds them to the tens register
         count1: 
             inc bh
-            CMP bh, 10
-            JE count10
-            JMP iteration
+            cmp bh, 10
+            je count10
+            jmp iteration
             
         ; Units are reset grow by one
         count10:
-            XOR bh, bh
+            xor bh, bh
             inc bl
-            JMP iteration
+            jmp iteration
 
         ; Ends the iteration of the user input
         endIteration:
-            CMP bl, 0
-            JE singleDigits
+            cmp bl, 0
+            je singleDigits
 
-            ADD bl, 30h
+            add bl, 30h
             mov ds:[output + si], bl
             inc si
 
         ; Places the count of symbols of words that are shorter than 10 into output buffer
         singleDigits:
-            ADD bh, 30h
+            add bh, 30h
 
             ; Adds units to the output buffer
             mov ds:[output + si], bh
