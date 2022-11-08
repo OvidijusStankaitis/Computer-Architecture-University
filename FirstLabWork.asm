@@ -28,9 +28,10 @@
         mov dx, offset input
         call inputt
 
-        ; bh - units and bl - tens
+        ; bh - units and bl - tens and ch - hundreds
         mov bh, 0
         mov bl, 0 
+        mov ch, 0
 
         ; di becomes the starting index for the input
         mov di, offset input + 2 
@@ -49,18 +50,24 @@
             cmp al, 32 
             jne count1
             
-            ; If both registers are zero, program jumps to next character
+            ; If all registers are zero, program jumps to next character
+            cmp ch, 0
             cmp bl, 0
             cmp bh, 0
             je iteration
 
-            ; Checks if tens are zero, and only puts units in the output buffer and resets tens
+            ; Checks if tens and hundreds are zero, and only puts units in the output buffer and resets tens
+            cmp ch, 0
             cmp bl, 0
             je jump 
 
-            ; Tens are moved to output buffer
-            add bl, 30h
-            mov ds:[output + si], bl 
+            ; Checks if hundreds are zero
+            cmp ch, 0
+            je jump2
+
+            ; Hundreds are moved to output buffer
+            add ch, 30h
+            mov ds:[output + si], ch 
             inc si
 
         ; Places the count of symbols of words that are shorter than 10 into output buffer and resets bh and bl values
@@ -77,28 +84,69 @@
             inc si
 
             ; Reseting the values
-            xor bh, bh
+            xor ch, ch
             xor bl, bl
+            xor bh, bh
             jmp iteration
 
-        ; Checks if units exceed 9 and adds them to the tens register
-        count1: 
+        ; Places the count of symbols of words that are longer than 10 into output buffer and resets bh and bl values
+        jump2:
+            ; Adds tens to output buffer
+            add bl, 30h
+            mov ds:[output + si], bl
+            inc si
+
+            ; Adds units to the output buffer
+            add bh, 30h
+            mov ds:[output + si], bh
+            inc si
+
+            ; Adds space to separate different values
+            mov ds:[output + si], 32
+            inc si
+
+            ; Reseting the values
+            xor ch, ch
+            xor bl, bl
+            xor bh, bh
+            jmp iteration
+
+        ; Counter for units
+        count1:
             inc bh
             cmp bh, 10
             je count10
             jmp iteration
-            
-        ; Units are reset grow by one
+        
+        ; Counter for tens
         count10:
             xor bh, bh
             inc bl
+            cmp bl, 10
+            je count100
+            jmp iteration
+
+        ; Counter for hundreds
+        count100:
+            xor bl, bl
+            inc ch
             jmp iteration
 
         ; Ends the iteration of the user input
         endIteration:
+            cmp ch, 0
             cmp bl, 0
             je singleDigits
 
+            cmp ch, 0
+            je mediumDigits
+
+            add ch, 30h
+            mov ds:[output + si], ch
+            inc si
+
+        ; Places the count of symbols of words that are longer than 10 into output buffer
+        mediumDigits:
             add bl, 30h
             mov ds:[output + si], bl
             inc si
@@ -106,12 +154,8 @@
         ; Places the count of symbols of words that are shorter than 10 into output buffer
         singleDigits:
             add bh, 30h
-
-            ; Adds units to the output buffer
             mov ds:[output + si], bh
             inc si
-            
-            ; Adds space to separete different values
             mov ds:[output + si], 32
 
         mov dx, offset answer
@@ -136,6 +180,6 @@
         inputt: 
             mov ah, 0ah
             int 21h
-            ret
+            ret       
 
     end start
