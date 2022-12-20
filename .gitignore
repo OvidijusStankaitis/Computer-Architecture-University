@@ -2,4 +2,8 @@
 *.MAP
 *.OBJ
 *.bat
-2.asm
+*.txt
+SRC.COM
+OUT.ASM
+*.TXT
+test.*
