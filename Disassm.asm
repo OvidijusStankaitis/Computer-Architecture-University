@@ -2,25 +2,27 @@
 .stack 100h
 
 .data
-    ifn db 13 dup (0)   ; Input file name
-    ifh dw 0    ; Input file handle
-    ofn db 13 dup (0)   ; Output file name
+    ifn db 13 dup (0)   ; Input name
+    ifh dw 0    ; Input handle
+    ofn db 13 dup (0)   ; Output
     ofh dw 1    ; Output file handle
 
     READ_LENGTH dw 1024
     PRINT_LENGTH dw 1024
 
     in_buff db 1024 dup (?)
-    in_buff_end dw 0    ; Input buffer end
-    in_buff_length dw 1024  ; Input buffer length
+    in_buff_end dw 0    ; Input buff end
+    in_buff_length dw 1024  ; Inut buff length
 
-    eof db 0
+    ip_val dw 0
 
-    out_buff db 1024 dup (?)
+    eof db 0    ; Marks EOF
+
+    out_buff db 1024 dup (?)    ; Output buff
     out_buff_i dw 0
 
 	instr_buff db 50 dup (?)
-	instr_length db 0   ; Command string lenght
+	instr_length db 0   ; Legth of the command that is being examined
 	instr_pointer dw ?
 
     ; Disassembler logic
@@ -31,32 +33,29 @@
     rm_val db 0
     port_val db 0
     sreg_val db 0
+    force_hex db 0
 	skip_h db 0
 
     ; Messages
     newline db 0Dh, 0Ah, 24h
-    open_if_error_msg db "Couldn't open input file$"    ; TURI NEBELIKT arba TURI BUT PAPILDYTAS
-    create_of_error_msg db "Couldn't create output file$"  ; TURI NEBELIKT arba TURI BUT PAPILDYTAS
+    open_if_error_msg db "Input file could not be opened$"
+    create_of_error_msg db "Output file could not be created$"
     close_if_error_msg db "Couldn't close input file$"
     close_of_error_msg db "Couldn't close output file$"
     read_file_error_msg db "Error reading file$"
-    help_msg db "Usage: disasm [input file] [output file]", 0Dh, 0Ah, 24h
+    end_msg db "end"
+    help_msg db "Usage: disassm.exe input.com output.asm", 0Dh, 0Ah, 24h
     
-    ; Instruction constructor
-    special_symbols db " ,[]:+?"
+    ; Instruction constructors
+    special_symbols db " ,[]:+"
     hex_abc db "0123456789ABCDEF"
     registers db "alcldlblahchdhbhaxcxdxbxspbpsidi"
     rm_0_registers db "bx+sibx+dibp+sibp+di"
     rm_4_registers db "sidibpbx"
     segments db "escsssds"
-    is_prefix db 0  ; Checks what (if a) segment was used 
-
-    ;Three-letter commands
-    com_3_main db "movpopoutlealdsles"
-    com_3_lgic db "notshlshrsarrolrorrclrcrandxor"
-
-    ;Four-letter commands
-    com_4_main db "pushxchgxlatlahfsahfpopf"
+    is_prefix db 0  ; Tells what segment and if it was used
+    instructions db "movoutnotrcrxlat" ; Instruction set
+    unidentified db "???"
 
 .code
 start:
@@ -65,7 +64,7 @@ start:
     xor ax, ax
     jmp read_pars
 
-; Print help message
+; Print help
 do_help:
     mov ah, 09h
     mov dx, offset help_msg
@@ -80,13 +79,13 @@ read_pars:
     cmp cl, 0
     je do_help
 
-    ; If /? print help
+    ; If asks for help
     dec cl
     mov si, 82h
     cmp word ptr es:[si], "?/"
     je do_help
 
-    ; Looking for input file name
+    ; Searching for input file name
     read_ifn:
         mov di, offset ifn
 
@@ -102,13 +101,13 @@ read_pars:
             inc di
         loop read_ifn_loop
 
-    ; Checking if input file was provided
+    ; Searching for a file
     end_read_ifn:
         cmp cl, 0
         je skip_read_ofn
         inc si
 
-    ; Looking for output file name
+    ; Searching or input file name
     read_ofn:
         mov di, offset ofn
         read_ofn_loop:
@@ -125,83 +124,87 @@ read_pars:
             inc di
         loop read_ofn_loop
 
+    ; Saving addr
     skip_read_ofn:
         mov ax, ds
         mov es, ax
         xor ax, ax
 
-; Open input file
+; Opening input file
 open_if:
     mov ax, 3D00h
-    lea dx, ifn
+    mov dx, offset ifn
     int 21h
     jc open_if_error
     mov ifh, ax
     jmp create_of
 
-; Error if could't open file
+; jeigu nepavyksta sukurti ivesties failo, tai ismetam klaida, pabaigiam programa
 open_if_error:
-    lea dx, open_if_error_msg
+    mov dx, offset open_if_error_msg
     call PrintText
     mov ax, 4C00h
     int 21h
 
-; Create output file
+; sukuriamas isvesties failas
 create_of:
     mov ax, 3C00h
     xor cx, cx
-    lea dx, ofn
+    mov dx, offset ofn
     int 21h
     jc create_of_error
     mov ofh, ax
     jmp main_logic
 
-; Error if couldn't create output file
+; jeigu nepavyksta sukurti isvesties failo, ismetam klaida, viska spausdinam i konsole
 create_of_error:
-    lea dx, create_of_error_msg
+    mov dx, offset create_of_error_msg
     call PrintText
-    mov ah, 09h
-    lea dx, newline
-    int 21h
 
 main_logic:
+    ; nustatom kursoriu pradines reiksmes
     mov si, offset in_buff
 	mov di, offset instr_buff
 	mov instr_pointer, di
     mov di, offset out_buff
     
-    ; Zero all registers
+    ; nunulinam visus reg.
     xor ax, ax
     xor bx, bx
     xor cx, cx
     xor dx, dx
 
     main_loop:
-        ; Inc to next byte
+        ; sokam prie sekancio baito
+        call PushIp
         call IncSi
 
-        ; Quit if nothing else to read
+        ; jeigu nebeturim, ka skaityt, einam lauk
         cmp eof, 1
         je exit_main_loop
 
-        ; Take one byte from output buffer
+        ; nuimam viena baita is ivesties buferio
         xor dh, dh
         mov dl, ds:[si]
         call CheckInstruction
 
-        cmp ofh, 1
-        jne skip_pushspace
+        ; cmp ofh, 1
+        ; jne skip_pushspace
 
         mov cx, 1
         call CheckOutBuff
 
+        mov byte ptr [di], " "
+        inc di
+        inc out_buff_i
+
         skip_pushspace:
             push si
             mov cl, instr_length
-            lea si, instr_buff
+            mov si, offset instr_buff
             call PushToOutBuff
             mov instr_length, 0
-            lea si, instr_buff
+            mov si, offset instr_buff
             mov instr_pointer, si
             pop si
             call PushNewline
@@ -213,13 +216,16 @@ main_logic:
             call Print
     jmp main_loop
 
-; Print buffer
+; isspausdinam buferi
 exit_main_loop:
+    mov cx, 3
+    mov si, offset end_msg
+    call PushToOutBuff
     call Print
 
-; Closing input file
+; uzdarom ivesties faila
 close_if:
-    ; Checking if it was open
+    ; tikrinam, ar ivesties failas is viso buvo atidarytas
     cmp ifh, 0
     je close_of
 
@@ -228,17 +234,17 @@ close_if:
     int 21h
     jc close_if_error
 
-    ; Closing the file
+    ; keliaujam uzdarineti isvesties failo
     jmp close_of
 
-; Error for closing input file
+; isvedam zinute, jeigu neisejo uzdaryti ivesties failo
 close_if_error:
-    lea dx, close_if_error_msg
+    mov dx, offset close_if_error_msg
     call PrintText
 
-; Closing output file
+; uzdarom isvesties faila
 close_of:
-    ; Checking if it was open
+    ; tikrinam, ar isvesties failas is viso buvo atidarytas
     cmp ofh, 1
     je clean_exit
 
@@ -247,49 +253,49 @@ close_of:
     int 21h
     jc close_of_error
 
-    ; Going to end the program
+    ; keliaujam pabaigineti programa
     jmp clean_exit
 
-; Error for closing output file
+; isvedam zinute, jeigu neisejo uzdaryti isvesties failo
 close_of_error:
-    lea dx, close_of_error_msg
+    mov dx, offset close_of_error_msg
     int 21h
 
-; Exit
+; pabaigiam programa
 clean_exit:
     mov ax, 4C00h
     int 21h
 
-; Checking the byte that is being examined
+; funkc., tikrinanti, kas toks yra nagrinejamas baitas
 proc CheckInstruction
-    ; Checking if ES is being used
+    ; tikrinam, ar yra naudojamas ES segmentas
     cmp dl, 26h
     jne skip_es
     mov is_prefix, 0
     jmp was_segment
 
-    ; Checking if CS is being used
+    ; tikrinam, ar yra naudojamas CS segmentas
     skip_es:
         cmp dl, 2Eh
         jne skip_cs
         mov is_prefix, 1
         jmp was_segment
 
-    ; Checking if SS is being used
+    ; tikrinam, ar yra naudojamas SS segmentas
     skip_cs:
         cmp dl, 36h
         jne skip_ss
         mov is_prefix, 2
         jmp was_segment
 
-    ; Checking if DS is being used
+    ; tikrinam, ar yra naudojamas DS segmentas
     skip_ss:
         cmp dl, 3Eh
         jne skip_ds
         mov is_prefix, 3
         jmp was_segment
 
-    ; Prefix wasn't used
+    ; prefiksas nebuvo naudojamas
     skip_ds:
         mov is_prefix, 4
         jmp was_not_segment
@@ -298,7 +304,7 @@ proc CheckInstruction
         call IncSi
         mov dl, byte ptr [si]
     
-    ; Checking for 1 mov version
+    ; ziurim, ar tai yra 1 MOV'o versija
     was_not_segment:
         mov al, dl
         xor al, 10001000b
@@ -307,7 +313,7 @@ proc CheckInstruction
         call parse_mov_1
         ret
 
-    ; Checking for 2 mov version
+    ; ziurim, ar tai yra 2 MOV'o versija
     skip_mov_1:
         mov al, dl
         xor al, 11000110b
@@ -316,7 +322,7 @@ proc CheckInstruction
         call parse_mov_2
         ret
 
-    ; Checking for 3 mov version
+    ; ziurim, ar tai yra 3 MOV'o versija
     skip_mov_2:
         mov al, dl
         xor al, 10110000b
@@ -325,7 +331,7 @@ proc CheckInstruction
         call parse_mov_3
         ret
 
-    ; Checking for 4 or 5 mov version
+    ; ziurim, ar tai yra 4 arba 5 MOV'o versija
     skip_mov_3:
         mov al, dl
         xor al, 10100000b
@@ -334,7 +340,7 @@ proc CheckInstruction
         call parse_mov_45
         ret
 
-    ; Checking for 6 mov version
+    ; ziurim, ar tai yra 6 MOV'o versija
     skip_mov_45:
         mov al, dl
         xor al, 10001100b
@@ -344,7 +350,7 @@ proc CheckInstruction
         call parse_mov_6
         ret
 
-    ; Checking for 1 out version
+    ; ziurim, ar tai yra 1 OUT'o versija
     skip_mov_6:
         mov al, dl
         xor al, 11100110b
@@ -353,7 +359,7 @@ proc CheckInstruction
         call parse_out_1
         ret
 
-    ; Checking for 2 out version
+    ; ziurim, ar tai yra 2 OUT'o versija
     skip_out_1:
         mov al, dl
         xor al, 11101110b
@@ -362,7 +368,7 @@ proc CheckInstruction
         call parse_out_2
         ret
 
-    ; Checking for not
+    ; ziurim, ar tai yra NOT
     skip_out_2:
         mov al, dl
         xor al, 11110110b
@@ -371,7 +377,7 @@ proc CheckInstruction
         call parse_not
         ret
 
-    ; checking for rcr
+    ; ziurim, ar tai yra RCR
     skip_not:
         mov al, dl
         xor al, 11010000b
@@ -380,7 +386,7 @@ proc CheckInstruction
         call parse_rcr
         ret
 
-    ; checking for xlat
+    ; ziurim, ar tai yra XLAT
     skip_rcr:
         mov al, dl
         xor al, 11010111b
@@ -389,34 +395,41 @@ proc CheckInstruction
         call parse_xlat
         ret
 
-    ; If none of the above program puts ? into buffer
+    ; jeigu nei viena komanda is auksciau neatitiko, tai tokios komandos sis disassembleris nesupranta, todel i buferi imetam klaustuko simboli
     skip_xlat:
-        mov bx, 6
-        call PushSpecialSymbol
+        push si
+
+        mov cx, 3
+        mov si, offset unidentified
+        call PushToBuffer
+
+        pop si
         ret
 endp CheckInstruction
 
+; funkc., nuskaitanti buferi
 proc Read
     push ax
     push bx
     push cx
     push dx     
     
-    ; Reading values from input file
+    ; skaitom reiksmes is ivesties failo
     read_from_file:
         mov ah, 3Fh
         mov bx, ifh
         mov cx, READ_LENGTH
-        lea dx, in_buff
+        mov dx, offset in_buff
         int 21h
         jnc read_file_success
 
-    ; Error for file read
+    ; isspausdinam klaida i konsole
     read_file_error:
         mov ah, 09h
-        lea dx, read_file_error_msg
+        mov dx, offset read_file_error_msg
         int 21h
 
+    ; nusistatom kursoriu reiksmes
     read_file_success:
         mov si, offset in_buff
         mov in_buff_end, si
@@ -431,21 +444,21 @@ proc Read
     ret
 endp Read
 
-; Printing buffer
+; funkc., isspausdinanti buferi
 proc Print
     push ax
     push bx
     push cx
     push dx
     
-    ; Print
+    ; isspausdinam buferi
     mov ah, 40h
     mov bx, ofh
     mov cx, out_buff_i
-    lea dx, out_buff
+    mov dx, offset out_buff
     int 21h
 
-    ; Move cursor to the begining
+    ; nukeliam kursoriu i pradzia
     mov out_buff_i, 0
     mov di, offset out_buff
 
@@ -456,34 +469,42 @@ proc Print
     ret
 endp Print
 
-; Move on to the next byte
+; nusokam prie sekancio baito
 proc IncSi
 	push dx
 	
-    ; If not in buffer end, there is nothing to read anymore
+    ; ziurim ar mes nesan buferio pabaigoj, jei ne, tai skaityt nieko nereikia
     cmp si, in_buff_end
     jb checkinbuff_skip_read
 
-    ; If we are at the end of buffer we need to read further
+    ; jeigu mes esam buferio pabaigoj, tai reikia bandyt skaityt dar karta
     cmp in_buff_length, 1024
     je inc_si_read
 
-    ; Last case this is EOF
+    ; kitu atveju, tai yra failo pabaiga
     mov eof, 1
     pop dx
     ret
 
-    ; Read new buffer
+    ; perskaitom nauja buferi
     inc_si_read:
         call Read
         jmp skip_incsi
 
-    ; Taking next byte
+    ; tiesiog paimam sekanti baita
     checkinbuff_skip_read:
         inc si
 
     skip_incsi:
-	    pop dx
+        inc ip_val
+
+    xor dh, dh
+	mov skip_h, 1
+	mov dl, byte ptr [si]
+	call PushOutHexValue
+	mov skip_h, 0
+
+	pop dx
 
     ret
 endp IncSi
@@ -493,8 +514,10 @@ proc CheckOutBuff
 
     mov ax, out_buff_i
     add ax, cx
+
     cmp ax, PRINT_LENGTH
     jbe checkoutbuff_skip_print
+
     call Print
 
     checkoutbuff_skip_print:
@@ -502,7 +525,6 @@ proc CheckOutBuff
         ret
 endp CheckOutBuff
 
-;Push cx characters from ds:si to output buffer (es:di)
 proc PushToOutBuff
     call CheckOutBuff
     add out_buff_i, cx
@@ -511,12 +533,12 @@ proc PushToOutBuff
     ret
 endp PushToOutBuff
 
-; Saves string to buffer
+; funkc., issauganti str i buferi
 proc PushToBuffer
 	push di
 
-	add instr_length, cl    ; Increase str length
-	mov di, instr_pointer   
+	add instr_length, cl    ; padidinam einamos instrukcijos str ilgi
+	mov di, instr_pointer   ; idedame instrukcijos pradzios adr.
 	rep movsb
 	mov instr_pointer, di
 
@@ -525,7 +547,7 @@ proc PushToBuffer
 	ret
 endp PushToBuffer
 
-; Puts special symbol into buffer
+; funkc., reikalinga ideti spec. simb. i buferi
 proc PushSpecialSymbol
     push si
 
@@ -538,14 +560,37 @@ proc PushSpecialSymbol
     ret
 endp PushSpecialSymbol
 
-; Converts ascii hex to hex
-proc PushHexValue
+
+proc PushOutHexValue
+    ;dx is word value to be pushed
     push ax
     xor ah, ah
     push si
-	push di
-	mov di, instr_pointer
 
+	mov cx, 5
+	call CheckOutBuff
+	
+    cmp force_hex, 1
+    je pushouthexvalue_force
+    cmp dh, 0
+    je pushouthexvalue_byte
+    pushouthexvalue_force:
+    mov al, dh
+    and al, 0F0h
+    shr al, 4
+    lea si, hex_abc
+    add si, ax
+    movsb
+    
+    mov al, dh
+    and al, 0Fh
+    lea si, hex_abc
+    add si, ax
+    movsb
+
+    add out_buff_i, 2
+
+    pushouthexvalue_byte:
     mov al, dl
     and al, 0F0h
     shr al, 4
@@ -559,24 +604,81 @@ proc PushHexValue
     add si, ax
     movsb
 
+    add out_buff_i, 2
+
+    cmp force_hex, 1
+    je pushouthexvalue_skip_h
+	cmp skip_h, 1
+	je pushouthexvalue_skip_h
+    mov byte ptr [di], "h"
+    inc di
+    inc out_buff_i
+    pushouthexvalue_skip_h:
+
+    pop si
+    pop ax
+    ret
+endp PushOutHexValue
+
+; funkc. konvertuojanti ascii 16-ainius simbol. i realius 16-ainius simbol.
+proc PushHexValue
+    push ax
+    xor ah, ah
+    push si
+	push di
+	mov di, instr_pointer
+
+    ; patikrinti ar reikia rasyti du baitus
+    cmp dh, 0
+    je pushhexvalue_byte
+
+    ; konvertuoja pirmaji baita
+    pushhexvalue_force:
+        mov al, dh
+        and al, 0F0h
+        shr al, 4
+        lea si, hex_abc
+        add si, ax
+        movsb
+    
+    mov al, dh
+    and al, 0Fh
+    lea si, hex_abc
+    add si, ax
+    movsb
+
     add instr_length, 2
 
-	cmp skip_h, 1
-	je pushhexvalue_skip_h
+    ; konvertuojam ascii simb. i hex simb.
+    pushhexvalue_byte:
+    mov al, dl
+    and al, 0F0h
+    shr al, 4
+    mov si, offset hex_abc
+    add si, ax
+    movsb
+
+    mov al, dl
+    and al, 0Fh
+    mov si, offset hex_abc
+    add si, ax
+    movsb
+
+    add instr_length, 2
+
+    ; pridedam h raide prie 16-ainiu simb.
     mov byte ptr [di], "h"
     inc di
     inc instr_length
 
-    pushhexvalue_skip_h:
-        mov instr_pointer, di
-        pop di
-        pop si
-        pop ax
+    mov instr_pointer, di
+    pop di
+    pop si
+    pop ax
 
-        ret
+    ret
 endp PushHexValue
 
-; Puts newline into file
 proc PushNewline
     mov cx, 2
     call CheckOutBuff
@@ -590,29 +692,53 @@ proc PushNewline
     ret
 endp PushNewline
 
-; Print text until $ and then add a newline
+; isspausdinu teksta ir veliau isspausdinu nauja eilute
 proc PrintText
     push ax
 
     mov ah, 09h
     int 21h
-    lea dx, newline
+
+    mov dx, offset newline
     int 21h
 
     pop ax
     ret
 endp PrintText
 
-; Puts offset to output buffer
+proc PushIp
+    push dx
+    mov force_hex, 1
+    mov dx, ip_val
+    call PushOutHexValue
+    pop dx
+    mov force_hex, 0
+    
+    mov cx, 2
+    call CheckOutBuff
+    mov byte ptr [di], ":"
+    inc di
+    mov byte ptr [di], " "
+    inc di
+    add out_buff_i, 2
+
+    ret
+endp PushIp
+
+; i isvedimo buferi ideda poslinki
 proc PushOffset
+    ; i buferi idedame pliusa
     mov bx, 5
     call PushSpecialSymbol
+
+    ; nuskaitome poslinki ir idedame ji i isvedimo buferi
     call read_bytes
     call PushHexValue
 
     ret
 endp PushOffset
 
+; funkc., reikalinga perskaityti 2 sekancius baitus
 proc read_bytes
     xor dh, dh
     call IncSi
@@ -636,34 +762,40 @@ proc read_w_bytes
     je read_w_b_offset
     call IncSi
     mov dh, [si]
-    read_w_b_offset:
 
+    read_w_b_offset:
     ret
 endp read_w_bytes
 
 proc parse_dwmodregrm
+    ; nustatome, ar w reiksme
     mov al, dl
     and al, 1b
     mov w_val, al
 
+    ; nustatome, ar w reiksme
     mov al, dl
     and al, 10b
     shr al, 1
     mov d_val, al
     
+    ; imam sekanti baita
     call IncSi
     mov dl, byte ptr [si]
 
+    ; nustatome mod reiksme
     mov al, dl
     and al, 11000000b
     shr al, 6
     mov mod_val, al
 
+    ;reg_val
     mov al, dl
     and al, 111000b
     shr al, 3
     mov reg_val, al
 
+    ; nustatome r/m reiksmes
     mov al, dl
     and al, 111b
     mov rm_val, al
@@ -675,14 +807,25 @@ proc parse_reg
     push si
     xor bh, bh
 
-    lea si, registers
+    ; pasiimam visus reg.
+    mov si, offset registers
+
+    ; pasiziurim, kuri registra mes naudosim
     mov bl, reg_val
+
+    ; pasiziurim, kokio dydzio mes registrus naudosim
     cmp w_val, 0
     je parse_reg_skip_add
+
+    ; praleidziam vieno baito registrus
     add bx, 8
+
+    ; nustatom registra
     parse_reg_skip_add:
-    add bx, bx
-    add si, bx
+        add bx, bx
+        add si, bx
+
+    ; isprintinam registra i buferi
     mov cx, 2
     call PushToBuffer
 
@@ -694,7 +837,7 @@ proc parse_sreg
     push si
     xor bh, bh
 
-    lea si, segments
+    mov si, offset segments
     mov bl, sreg_val
     add bx, bx
     add si, bx
@@ -706,16 +849,22 @@ proc parse_sreg
 endp parse_sreg
 
 proc parse_rm
+    ; ziurim ar mod nelygus 11, jei tai, tai 
     cmp mod_val, 11b
     jne parse_rm_skip_mod11
+
     mov al, rm_val
     mov reg_val, al
     call parse_reg
     ret
 
+    ; mod galimos reiksmes: 00, 01, 10
     parse_rm_skip_mod11:
+        ; ziurim ar buvo naudojamas prefiksas
         cmp is_prefix, 4
         je parse_rm_no_prefix
+
+
         mov al, is_prefix
         mov sreg_val, al
         call parse_sreg
@@ -723,6 +872,7 @@ proc parse_rm
         mov bx, 4
         call PushSpecialSymbol
 
+    ; prefiksas nebuvo naudojamas
     parse_rm_no_prefix:
         mov bx, 2
         call PushSpecialSymbol
@@ -736,6 +886,7 @@ proc parse_rm
         cmp mod_val, 00b
         jne parse_rm_skip_direct
         
+        ;parse_rm_direct:
         call read_bytes
         call PushHexValue
         
@@ -744,18 +895,20 @@ proc parse_rm
         ret
 
     parse_rm_skip_direct:
+        ;parse_rm_4:
         push si
         xor bh, bh
         mov bl, rm_val
         sub bl, 4
         add bl, bl
         mov cx, 2
-        lea si, rm_4_registers+bx
+        lea si, rm_4_registers + bx
         call PushToBuffer
         pop si
         
         cmp mod_val, 00b
         je parse_rm_4_no_offset
+        ;parse_rm_4_offset:
         call PushOffset
 
     parse_rm_4_no_offset:
@@ -771,12 +924,13 @@ proc parse_rm
         mov al, bl
         mul cl
         mov bl, al
-        lea si, rm_0_registers+bx
+        lea si, rm_0_registers + bx
         call PushToBuffer
         pop si
 
         cmp mod_val, 00b
         je parse_rm_0_no_offset
+        ;parse_rm_0_offset:
         call PushOffset
 
     parse_rm_0_no_offset:
@@ -786,16 +940,16 @@ proc parse_rm
         ret
 endp parse_rm
 
-; Puting MOV into instruction string begining
+; funkc. irasanti MOV i instrukcijos str pradzia
 proc parse_mov
     push si
 
-    ; Put a command name into instuction string
+    ; imetam i instrukcijos str komandos pavadinima
     mov cx, 3
-    lea si, com_3_main
+    mov si, offset instructions
     call PushToBuffer
 
-    ; Put a space into instruction string
+    ; imetam i instrukcijos str tarpa
     mov bx, 0
     call PushSpecialSymbol
 
@@ -810,7 +964,6 @@ proc parse_mov_1
     call parse_dwmodregrm
     cmp d_val, 1
     je parse_mov_1_d1
-    ;parse_mov_1_d0:
     call parse_rm
     mov bx, 1
     call PushSpecialSymbol
@@ -886,7 +1039,6 @@ proc parse_mov_45
     call parse_mov
     cmp d_val, 1
     je parse_mov_45_d1
-    ;parse_mov_45_d0:
     call parse_reg
     mov bx, 1
     call PushSpecialSymbol
@@ -939,16 +1091,16 @@ proc parse_mov_6
     ret
 endp parse_mov_6
 
-; Puting OUT into instruction string begining
+; funkc. irasanti OUT i instrukcijos str pradzia
 proc parse_out
     push si
     
-    ; Put a command name into instuction string
+    ; imetam i instrukcijos str komandos pavadinima
     mov cx, 3
-    lea si, com_3_main+6
+    mov si, offset instructions + 3
     call PushToBuffer
 
-    ; Put a space into instruction string
+    ; imetam i instrukcijos str tarpa
     pop si
     mov bx, 0
     call PushSpecialSymbol
@@ -1007,17 +1159,17 @@ proc parse_out_2
     ret
 endp parse_out_2
 
-; Puting NOT into instruction string begining
+; funkc. irasanti NOT i instrukcijos str pradzia (daugiau nieko ir nebereikes)
 proc parse_not
     call parse_dwmodregrm
     
-    ; Put a command name into instuction string
+    ; imetam i instrukcijos str komandos pavadinima
     push si
     mov cx, 3
-    lea si, com_3_lgic
+    mov si, offset instructions + 6
     call PushToBuffer
 
-    ; Put a space into instruction string
+    ; imetam i instrukcijos str tarpa
     pop si
     mov bx, 0
     call PushSpecialSymbol
@@ -1027,18 +1179,18 @@ proc parse_not
     ret
 endp parse_not
 
-; Puting RCR into instruction string begining
+; funkc. irasanti RCR i instrukcijos str pradzia (daugiau nieko ir nebereikes)
 proc parse_rcr
     call parse_dwmodregrm
     
     push si
 
-    ; Put a command name into instuction string
+    ; imetam i instrukcijos str komandos pavadinima
     mov cx, 3
-    mov si, offset com_3_lgic + 21
+    mov si, offset instructions + 9
     call PushToBuffer
 
-    ; Put a space into instruction string
+    ; imetam i instrukcijos str tarpa
     pop si
     mov bx, 0
     call PushSpecialSymbol
@@ -1050,6 +1202,7 @@ proc parse_rcr
     call PushSpecialSymbol
     cmp d_val, 1
     je parse_rcr_v1
+    ;parse_rcr_v0:
     push di
     mov di, instr_pointer
     mov byte ptr [di], "1"
@@ -1066,13 +1219,13 @@ proc parse_rcr
     ret
 endp parse_rcr
 
-; Puting XLAT into instruction string begining
+; funkc. irasanti XLAT i instrukcijos str pradzia (daugiau nieko ir nebereikes)
 proc parse_xlat
     push si
 
-    ; Move str name into instruction buffer
+    ; imetam i instrukcijos str komandos pavadinima
     mov cx, 4
-    mov si, offset com_4_main + 8
+    mov si, offset instructions + 12
     call PushToBuffer
 
     pop si

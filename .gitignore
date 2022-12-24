@@ -3,7 +3,7 @@
 *.OBJ
 *.bat
 *.txt
-SRC.COM
+*.COM
 OUT.ASM
 *.TXT
 test.*
